@@ -8,12 +8,20 @@ dependencies = [
     "markitdown[all]>=0.1.6",
 ]
 
+[project.optional-dependencies]
+mcp = [
+    "mcp>=2,<3",
+]
+
 [project.scripts]
 mdconv = "mdconvertor.cli:main"
+mdconv-mcp = "mdconvertor.mcp_server:main"
 
 [dependency-groups]
 dev = [
     "pytest>=8",
+    "anyio>=4",
+    "mcp>=2,<3",
 ]
 
 [tool.uv]

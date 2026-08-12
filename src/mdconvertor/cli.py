@@ -5,10 +5,10 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-import warnings
 from pathlib import Path
 
 from . import __version__
+from .core import ConversionError, clear_cache, convert_markdown
 
 STDOUT = "-"
 
@@ -39,7 +39,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="mdconv",
         description="Convert a file to Markdown using markitdown.",
     )
-    parser.add_argument("source", help="file to convert")
+    parser.add_argument("source", nargs="?", help="file to convert")
     parser.add_argument(
         "dest",
         nargs="?",
@@ -55,12 +55,26 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--plugins", action="store_true", help="enable markitdown plugins"
     )
+    parser.add_argument(
+        "--clear-cache",
+        action="store_true",
+        help="delete the conversion cache used by the MCP server and exit",
+    )
     parser.add_argument("--version", action="version", version=f"mdconv {__version__}")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
+    if args.clear_cache:
+        removed = clear_cache()
+        print(f"cleared {removed} cached conversion(s)", file=sys.stderr)
+        return 0
+
+    if args.source is None:
+        parser.error("the following arguments are required: source")
 
     source = Path(args.source)
     if not source.is_file():
@@ -79,27 +93,19 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 1
 
-    # Imported lazily: markitdown[all] pulls in pandas and friends, which makes
-    # --help and --version noticeably slow if imported at module level. The
-    # warning filter hides pydub's "couldn't find ffmpeg" notice, which is
-    # irrelevant unless you are converting audio.
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", RuntimeWarning)
-        from markitdown import MarkItDown
-
     try:
-        result = MarkItDown(enable_plugins=args.plugins).convert(str(source))
-    except Exception as exc:  # markitdown raises several conversion error types
-        print(f"error: failed to convert {source}: {exc}", file=sys.stderr)
+        markdown, _title = convert_markdown(source, plugins=args.plugins)
+    except ConversionError as exc:
+        print(f"error: {exc}", file=sys.stderr)
         return 1
 
     if out is None:
-        sys.stdout.write(result.markdown)
+        sys.stdout.write(markdown)
         return 0
 
     if out.parent != Path(""):
         out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(result.markdown, encoding="utf-8")
+    out.write_text(markdown, encoding="utf-8")
     if not args.quiet:
         print(f"wrote {out}", file=sys.stderr)
     return 0
