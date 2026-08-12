@@ -10,8 +10,17 @@ mdconv <source> [dest]
 ## Install
 
 ```bash
-uv tool install .        # installs the `mdconv` command globally
+uv tool install --prerelease=allow --python 3.12 ".[mcp]"
 ```
+
+That installs two commands globally: `mdconv` (the CLI) and `mdconv-mcp` (the
+[MCP server](#mcp-server)). Drop `[mcp]` for the CLI alone.
+
+Both flags are required and neither can be moved into `pyproject.toml`:
+`--prerelease=allow` because `markitdown[all]` depends on a beta Azure SDK (the
+`[tool.uv]` setting in `pyproject.toml` only covers `uv sync`, not
+`uv tool install`), and `--python 3.12` because the transitive `onnxruntime`
+dependency has no 3.14 wheels. Without them the install fails to resolve.
 
 Or run it from a checkout without installing:
 
@@ -49,13 +58,35 @@ $ mdconv report.pdf .
 error: report.md already exists (use --force to overwrite)
 ```
 
-Exit codes: `0` success, `1` conversion or overwrite refusal, `2` source file not found.
-The `wrote …` message goes to stderr, so `mdconv file.pdf -` pipes cleanly.
+Exit codes: `0` success, `1` conversion failure or overwrite refusal, `2` source file
+not found, `141` the pipe was closed downstream (`mdconv report.pdf - | head`).
+
+The `wrote …` message goes to stderr, so `mdconv report.pdf - > out.md` and piping
+into `head` both stay clean.
 
 ## MCP server
 
-`mdconv-mcp` exposes conversion to an LLM agent over MCP (stdio). Install with the
-extra and register it:
+`mdconv-mcp` exposes conversion to an LLM agent over MCP (stdio), so you can point
+an agent at a PDF and have it work from Markdown without paying for the document
+in context.
+
+Once installed with the `[mcp]` extra above:
+
+```json
+{
+  "mcpServers": {
+    "mdconv": { "command": "mdconv-mcp" }
+  }
+}
+```
+
+In Claude Code that is:
+
+```bash
+claude mcp add mdconv -- mdconv-mcp
+```
+
+To run it from a checkout instead of a global install:
 
 ```bash
 uv sync --extra mcp
@@ -84,7 +115,7 @@ tool returns only a receipt:
 ```jsonc
 {
   "path": "~/.cache/mdconvertor/70da76c4f6c5120b.md",
-  "bytes": 37303, "lines": 812, "est_tokens": 9266,
+  "bytes": 37303, "lines": 705, "est_tokens": 9266,
   "outline": [ {"level": 1, "line": 5, "text": "1. Introduction"}, ... ],
   "preview": "Shared MIME-info Database …",
   "cached": false
@@ -92,12 +123,44 @@ tool returns only a receipt:
 ```
 
 The agent then reads only the lines it needs from `path` using its own file tools,
-guided by the outline. On that 37KB spec the receipt is ~1,000 tokens instead of
-~9,300, and it stays roughly that size no matter how large the document gets —
-the outline is capped at 40 entries.
+guided by the outline:
 
-There is one tool, `convert_to_markdown(source, force=False)`. `source` is a local
-path or an `http(s)` URL. Repeat calls hit the cache; `force=true` reconverts.
+```
+convert_to_markdown("/docs/spec.pdf")   ->  receipt, ~1,000 tokens
+read /docs/spec.md lines 330-395        ->  just "2.5. The magic files"
+```
+
+On that 37KB spec the receipt is ~1,000 tokens instead of ~9,300, and it stays
+roughly that size no matter how large the document gets, because the outline is
+capped at 40 entries and the preview at 200 characters.
+
+### The tool
+
+One tool: `convert_to_markdown(source, force=False)`. `source` is a local path or
+an `http(s)` URL; `force=true` bypasses the cache. It returns:
+
+| Field | Meaning |
+| --- | --- |
+| `path` | Absolute path to the converted Markdown — the thing to read |
+| `bytes`, `lines` | Size of the Markdown, and the upper bound for a read offset |
+| `est_tokens` | Approximate cost of reading it whole (`chars / 4`, a heuristic) |
+| `title` | Document title, when markitdown detects one |
+| `outline` | `{level, line, text}` per heading — the index for selective reads |
+| `outline_truncated` | `true` when there were more headings than the cap |
+| `preview` | First 200 characters, to confirm the conversion looks sane |
+| `cached` | `true` when served from cache without reconverting |
+| `warning` | Set when the output looks unusable — see below |
+
+Failures (missing file, unsupported source, a blocked path) come back as MCP tool
+errors with a readable message, so the agent can correct itself rather than
+crashing the session.
+
+### Scanned PDFs
+
+markitdown does not raise on an image-only PDF — it returns almost no text and
+reports success, which otherwise costs an agent a whole turn to discover. When the
+output is nearly empty for a large source, `warning` says so explicitly. There is
+no OCR fallback; those documents need a different tool.
 
 ### Outlines from PDFs
 
@@ -135,3 +198,14 @@ uv run pytest -q
 The project pins Python 3.12 via `.python-version` (a transitive dependency,
 `onnxruntime`, has no 3.14 wheels yet), and enables pre-release resolution
 because `markitdown[all]` depends on a beta Azure SDK package.
+
+Layout:
+
+| Path | Contains |
+| --- | --- |
+| `src/mdconvertor/core.py` | Conversion, outline parsing and caching — shared by both front ends |
+| `src/mdconvertor/cli.py` | The `mdconv` CLI |
+| `src/mdconvertor/mcp_server.py` | The `mdconv-mcp` server and its single tool |
+
+`tests/test_mcp.py` drives the server in-process over the real protocol via
+`mcp.Client`, so no subprocess is needed.

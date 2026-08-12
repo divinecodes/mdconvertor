@@ -49,6 +49,24 @@ def test_converts_to_stdout(sample: Path, capsys):
     assert "# Hi" in capsys.readouterr().out
 
 
+def test_stdout_survives_a_closed_pipe(sample: Path, monkeypatch, capsys):
+    """`mdconv file.pdf - | head` must not end in a BrokenPipeError traceback."""
+
+    class ClosedPipe:
+        def write(self, _text):
+            raise BrokenPipeError
+
+        def flush(self):
+            raise BrokenPipeError
+
+        def fileno(self):
+            return 1
+
+    monkeypatch.setattr("sys.stdout", ClosedPipe())
+    monkeypatch.setattr("os.dup2", lambda *_: None)
+    assert main([str(sample), "-"]) == 141
+
+
 def test_refuses_to_overwrite(sample: Path, tmp_path: Path):
     out = tmp_path / "report.md"
     out.write_text("keep me", encoding="utf-8")

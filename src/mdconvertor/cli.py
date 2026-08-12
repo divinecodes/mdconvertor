@@ -34,6 +34,23 @@ def resolve_output(source: Path, dest: str) -> Path | None:
     return dest_path
 
 
+def write_stdout(markdown: str) -> int:
+    """Write to stdout, tolerating a closed pipe.
+
+    `mdconv file.pdf - | head` closes the pipe early, which would otherwise end
+    the run with a BrokenPipeError traceback. Redirecting the fd to devnull
+    stops the interpreter retrying the flush at shutdown; 141 is the usual
+    128+SIGPIPE status for this.
+    """
+    try:
+        sys.stdout.write(markdown)
+        sys.stdout.flush()
+    except BrokenPipeError:
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        return 141
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="mdconv",
@@ -100,8 +117,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     if out is None:
-        sys.stdout.write(markdown)
-        return 0
+        return write_stdout(markdown)
 
     if out.parent != Path(""):
         out.parent.mkdir(parents=True, exist_ok=True)
