@@ -142,7 +142,7 @@ an `http(s)` URL; `force=true` bypasses the cache. It returns:
 | Field | Meaning |
 | --- | --- |
 | `path` | Absolute path to the converted Markdown — the thing to read |
-| `bytes`, `lines` | Size of the Markdown, and the upper bound for a read offset |
+| `bytes`, `lines` | Size of the Markdown, and the upper bound for a read offset. `lines` counts `\n` the way a file reader does, so line numbers here and in `outline` match what you read from `path` |
 | `est_tokens` | Approximate cost of reading it whole (`chars / 4`, a heuristic) |
 | `title` | Document title, when markitdown detects one |
 | `outline` | `{level, line, text}` per heading — the index for selective reads |
@@ -186,7 +186,10 @@ Clear it with `mdconv --clear-cache`.
 
 Whatever markitdown supports — this installs `markitdown[all]`: PDF, Word, PowerPoint,
 Excel, HTML, CSV, JSON, XML, images, audio (transcription), Outlook messages, EPUB,
-ZIP archives, and YouTube URLs.
+and ZIP archives.
+
+`http(s)` sources, including YouTube URLs, work through the [MCP server](#mcp-server)
+only. The CLI takes local files and rejects a URL with a message saying so.
 
 ## Development
 

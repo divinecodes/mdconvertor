@@ -6,7 +6,6 @@ import hashlib
 import json
 import os
 import re
-import shutil
 import time
 import warnings
 from dataclasses import dataclass
@@ -21,6 +20,16 @@ KEY_LENGTH = 16
 # document is scanned images that markitdown cannot read as text.
 EMPTY_OUTPUT_CHARS = 200
 LARGE_SOURCE_BYTES = 100_000
+
+# pdfminer, markitdown's PDF backend, writes a form feed at every page
+# boundary. str.splitlines() treats those -- and \v, \x1c-\x1e, \x85, \u2028,
+# \u2029 -- as line breaks, but every file reader an agent has splits on \n
+# alone. Numbering lines any other way sends the agent to the wrong place.
+LINE_BREAK_CHARS = "\f\v\x1c\x1d\x1e\x85\u2028\u2029"
+
+# Cache entries are named by cache_key, so anything else in the directory
+# belongs to someone else and must be left alone.
+CACHE_ENTRY = re.compile(rf"^[0-9a-f]{{{KEY_LENGTH}}}$")
 
 ATX_HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
 CODE_FENCE = re.compile(r"^\s*(```|~~~)")
@@ -50,6 +59,22 @@ class Heading:
 class Outline:
     headings: list[Heading]
     truncated: bool
+
+
+def document_lines(markdown: str) -> list[str]:
+    """Split the way a file reader does: on \n only, page breaks stripped.
+
+    The stripping matters as much as the split -- a heading straight after a
+    page break arrives as "\fSection 3" and would not match otherwise.
+    """
+    return [line.strip(LINE_BREAK_CHARS) for line in markdown.split("\n")]
+
+
+def count_lines(markdown: str) -> int:
+    """Line count as a file reader would report it, for read-offset bounds."""
+    if not markdown:
+        return 0
+    return markdown.count("\n") + (0 if markdown.endswith("\n") else 1)
 
 
 def is_url(source: str) -> bool:
@@ -117,6 +142,9 @@ def parse_outline(markdown: str, *, max_entries: int = 40) -> Outline:
         return Outline(headings=headings, truncated=False)
 
     shallow = [h for h in headings if h.level <= 2]
+    if not shallow:
+        # Every heading is deep: a truncated index still beats no index.
+        return Outline(headings=headings[:max_entries], truncated=True)
     if len(shallow) <= max_entries:
         return Outline(headings=shallow, truncated=True)
     return Outline(headings=shallow[:max_entries], truncated=True)
@@ -126,7 +154,7 @@ def _atx_headings(markdown: str) -> list[Heading]:
     headings: list[Heading] = []
     fence: str | None = None
 
-    for number, line in enumerate(markdown.splitlines(), start=1):
+    for number, line in enumerate(document_lines(markdown), start=1):
         fence_match = CODE_FENCE.match(line)
         if fence_match:
             marker = fence_match.group(1)
@@ -153,7 +181,7 @@ def _numbered_headings(markdown: str) -> list[Heading]:
     agent to read the wrong lines.
     """
     headings: list[Heading] = []
-    for number, line in enumerate(markdown.splitlines(), start=1):
+    for number, line in enumerate(document_lines(markdown), start=1):
         stripped = line.strip()
         if len(stripped) > NUMBERED_MAX_CHARS:
             continue
@@ -218,11 +246,23 @@ def load_cached(key: str) -> tuple[Path, dict] | None:
     return markdown_path, meta
 
 
+def _write_atomic(path: Path, text: str) -> None:
+    temp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    temp.write_text(text, encoding="utf-8")
+    os.replace(temp, path)
+
+
 def store_cached(key: str, markdown: str, meta: dict) -> Path:
+    """Write the entry atomically, metadata first.
+
+    load_cached takes the .md as the marker for a complete entry, so a crash
+    partway through would otherwise leave a truncated document that every
+    later call reports as a cache hit.
+    """
     markdown_path, meta_path = cache_paths(key)
     markdown_path.parent.mkdir(parents=True, exist_ok=True)
-    markdown_path.write_text(markdown, encoding="utf-8")
-    meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    _write_atomic(meta_path, json.dumps(meta, indent=2))
+    _write_atomic(markdown_path, markdown)
     return markdown_path
 
 
@@ -236,10 +276,20 @@ def source_metadata(source: str | Path) -> dict:
 
 
 def clear_cache() -> int:
-    """Delete the cache directory. Returns the number of converted documents removed."""
+    """Delete cached conversions. Returns the number of documents removed.
+
+    Only entries this module named are removed, and never the directory
+    itself: MDCONVERTOR_CACHE_DIR is used verbatim, so it may well point at
+    somewhere that holds other things too.
+    """
     directory = cache_dir()
     if not directory.exists():
         return 0
-    count = len(list(directory.glob("*.md")))
-    shutil.rmtree(directory)
+    count = 0
+    for markdown_path in directory.glob("*.md"):
+        if not CACHE_ENTRY.match(markdown_path.stem):
+            continue
+        markdown_path.unlink()
+        directory.joinpath(f"{markdown_path.stem}.json").unlink(missing_ok=True)
+        count += 1
     return count

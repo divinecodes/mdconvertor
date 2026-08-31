@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from . import __version__
-from .core import ConversionError, clear_cache, convert_markdown
+from .core import ConversionError, clear_cache, convert_markdown, is_url
 
 STDOUT = "-"
 
@@ -92,6 +92,14 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.source is None:
         parser.error("the following arguments are required: source")
+
+    if is_url(args.source):
+        print(
+            f"error: {args.source} is a URL; mdconv converts local files "
+            "(the MCP server accepts URLs)",
+            file=sys.stderr,
+        )
+        return 2
 
     source = Path(args.source)
     if not source.is_file():

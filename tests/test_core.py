@@ -125,8 +125,8 @@ def test_load_cached_survives_corrupt_metadata():
 
 
 def test_clear_cache_counts_documents():
-    core.store_cached("aaaa", "# A", {})
-    core.store_cached("bbbb", "# B", {})
+    core.store_cached("a" * core.KEY_LENGTH, "# A", {})
+    core.store_cached("b" * core.KEY_LENGTH, "# B", {})
     assert core.clear_cache() == 2
     assert core.clear_cache() == 0
 
@@ -156,3 +156,85 @@ def test_is_url():
     assert core.is_url("https://example.com")
     assert core.is_url("http://example.com")
     assert not core.is_url("/tmp/file.pdf")
+
+
+# markitdown's PDF backend (pdfminer) ends every page with a form feed. That is
+# the shape the outline is actually pointed at in production, and the shape the
+# original HTML-only fixtures never exercised.
+PAGED_PDF_TEXT = (
+    "# Alpha Heading\n\nbody text\n\f"
+    "# Beta Heading\n\nmore body\n\f"
+    "## Gamma Heading\n\nlast page\n"
+)
+
+
+def line_of(markdown: str, text: str) -> int:
+    """The 1-indexed line a file reader would find `text` on."""
+    for number, line in enumerate(markdown.split("\n"), start=1):
+        if text in line:
+            return number
+    raise AssertionError(f"{text!r} is not in the document")
+
+
+def test_outline_lines_point_at_the_real_lines_of_the_file():
+    """The invariant the whole selective-read contract rests on."""
+    outline = core.parse_outline(PAGED_PDF_TEXT)
+    assert [h.text for h in outline.headings] == [
+        "Alpha Heading",
+        "Beta Heading",
+        "Gamma Heading",
+    ]
+    for heading in outline.headings:
+        assert heading.line == line_of(PAGED_PDF_TEXT, heading.text)
+
+
+def test_heading_immediately_after_a_page_break_is_still_found():
+    """Splitting on \\n alone leaves the "\\fHeading" that must still match."""
+    assert [h.text for h in core.parse_outline("\f# Beta\n").headings] == ["Beta"]
+
+
+def test_numbered_outline_lines_survive_page_breaks():
+    md = "Preamble\n\f1. Introduction\n\ntext\n\f2. Magic Files\n"
+    outline = core.parse_outline(md)
+    assert [h.text for h in outline.headings] == ["1. Introduction", "2. Magic Files"]
+    for heading in outline.headings:
+        assert heading.line == line_of(md, heading.text)
+
+
+def test_count_lines_matches_a_file_reader():
+    assert core.count_lines("") == 0
+    assert core.count_lines("one\n") == 1
+    assert core.count_lines("one\ntwo") == 2
+    # The form feed is a page break, not a line: splitlines() would say 3.
+    assert core.count_lines("one\n\ftwo\n") == 2
+
+
+def test_outline_truncates_rather_than_returning_nothing():
+    """No heading is shallow enough to keep, so the cap must still yield an index."""
+    md = "".join(f"### Sub {i}\n" for i in range(50))
+    outline = core.parse_outline(md, max_entries=10)
+    assert outline.truncated is True
+    assert [h.text for h in outline.headings] == [f"Sub {i}" for i in range(10)]
+
+
+def test_clear_cache_leaves_unrelated_files_alone():
+    """MDCONVERTOR_CACHE_DIR is taken verbatim and may hold someone else's files."""
+    core.store_cached("a" * core.KEY_LENGTH, "# A", {})
+    directory = core.cache_dir()
+    keep = directory / "important.txt"
+    keep.write_text("mine", encoding="utf-8")
+    notes = directory / "notes.md"
+    notes.write_text("also mine", encoding="utf-8")
+    subdir = directory / "sub"
+    subdir.mkdir()
+
+    assert core.clear_cache() == 1
+    assert directory.is_dir()
+    assert keep.read_text(encoding="utf-8") == "mine"
+    assert notes.read_text(encoding="utf-8") == "also mine"
+    assert subdir.is_dir()
+
+
+def test_store_cached_leaves_no_temporary_files():
+    core.store_cached("b" * core.KEY_LENGTH, "# B", {"title": "B"})
+    assert list(core.cache_dir().glob("*.tmp")) == []

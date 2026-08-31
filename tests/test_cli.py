@@ -87,3 +87,11 @@ def test_refuses_to_overwrite_source(tmp_path: Path):
 
 def test_missing_source(tmp_path: Path):
     assert main([str(tmp_path / "nope.pdf"), str(tmp_path)]) == 2
+
+
+def test_url_source_is_rejected_clearly(capsys):
+    """Path() would collapse the // and report a nonsense missing file."""
+    assert main(["https://example.com/a.pdf", "-"]) == 2
+    err = capsys.readouterr().err
+    assert "https://example.com/a.pdf" in err
+    assert "MCP server" in err

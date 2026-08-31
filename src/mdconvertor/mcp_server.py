@@ -20,6 +20,7 @@ from .core import (
     cache_key,
     check_allowed,
     convert_markdown,
+    count_lines,
     estimate_tokens,
     is_url,
     load_cached,
@@ -122,7 +123,7 @@ def convert_to_markdown(source: str, force: bool = False) -> ConvertResult:
     return ConvertResult(
         path=str(out_path.resolve()),
         bytes=len(markdown.encode("utf-8")),
-        lines=len(markdown.splitlines()),
+        lines=count_lines(markdown),
         est_tokens=estimate_tokens(markdown),
         title=title,
         outline=[
