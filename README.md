@@ -10,17 +10,20 @@ mdconv <source> [dest]
 ## Install
 
 ```bash
-uv tool install --prerelease=allow --python 3.12 ".[mcp]"
+uv tool install --prerelease=allow ".[mcp]"
 ```
 
 That installs two commands globally: `mdconv` (the CLI) and `mdconv-mcp` (the
 [MCP server](#mcp-server)). Drop `[mcp]` for the CLI alone.
 
-Both flags are required and neither can be moved into `pyproject.toml`:
-`--prerelease=allow` because `markitdown[all]` depends on a beta Azure SDK (the
-`[tool.uv]` setting in `pyproject.toml` only covers `uv sync`, not
-`uv tool install`), and `--python 3.12` because the transitive `onnxruntime`
-dependency has no 3.14 wheels. Without them the install fails to resolve.
+`--prerelease=allow` is required: `markitdown[all]` depends on a beta Azure SDK,
+and the `[tool.uv]` setting in `pyproject.toml` only covers `uv sync`, not
+`uv tool install`. Without it the install fails to resolve.
+
+Python 3.10 through 3.13 are supported and tested. 3.14 works for a direct
+install on Linux and macOS but is not supported: `markitdown` pins
+`magika~=0.6.1`, which caps `onnxruntime` at 1.20.1 on Windows, and that release
+has no 3.14 wheels.
 
 Or run it from a checkout without installing:
 
@@ -180,7 +183,23 @@ on the URL and do not notice upstream changes — pass `force=true` to re-fetch.
 | `MDCONVERTOR_CACHE_DIR` | Override the cache location (also honours `XDG_CACHE_HOME`) |
 | `MDCONVERTOR_ALLOWED_ROOTS` | Colon-separated roots the server may read from. Unset means unrestricted, which is fine for a server you launch yourself |
 
-Clear it with `mdconv --clear-cache`.
+Clear it with `mdconv --clear-cache`. Only files named by the cache key are
+removed, so pointing `MDCONVERTOR_CACHE_DIR` at a directory holding other things
+is safe.
+
+### What the server can reach
+
+Worth knowing before you point an agent at it, because both of these are
+deliberate and neither is restricted by default:
+
+- **Any file the server's user can read.** `MDCONVERTOR_ALLOWED_ROOTS` is the
+  containment mechanism and it is unset by default. Set it if the agent driving
+  the server is one whose instructions you do not fully control.
+- **Any URL, including private ones.** `MDCONVERTOR_ALLOWED_ROOTS` does *not*
+  apply to `http(s)` sources — it only guards local paths. A prompt-injected
+  agent could aim the server at an internal host or a cloud metadata endpoint,
+  and the request goes out with your network position. Sandbox the server, or
+  leave URL sources unused, if that matters to you.
 
 ## Supported formats
 

@@ -1,9 +1,28 @@
 [project]
 name = "mdconvertor"
 version = "0.1.0"
-description = "A tiny CLI wrapper around microsoft/markitdown: convert a file to Markdown."
+description = "Convert documents to Markdown from the CLI, or over MCP without spending tokens on the document."
 readme = "README.md"
 requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Divine Tettey", email = "tetteydivine0+github@gmail.com" },
+]
+keywords = ["markdown", "markitdown", "mcp", "pdf", "llm", "document-conversion"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Text Processing :: Markup :: Markdown",
+    "Topic :: Utilities",
+]
 dependencies = [
     "markitdown[all]>=0.1.6",
 ]
@@ -16,6 +35,11 @@ mcp = [
 [project.scripts]
 mdconv = "mdconvertor.cli:main"
 mdconv-mcp = "mdconvertor.mcp_server:main"
+
+[project.urls]
+Homepage = "https://github.com/divinecodes/mdconvertor"
+Repository = "https://github.com/divinecodes/mdconvertor"
+Issues = "https://github.com/divinecodes/mdconvertor/issues"
 
 [dependency-groups]
 dev = [

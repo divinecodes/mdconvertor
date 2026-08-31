@@ -11,6 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from mcp.server import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel, Field
 
@@ -90,6 +91,16 @@ class ConvertResult(BaseModel):
 )
 def convert_to_markdown(source: str, force: bool = False) -> ConvertResult:
     """Convert a document and return where the Markdown landed."""
+    try:
+        return _convert(source, force)
+    except ConversionError as exc:
+        # ToolError is what reaches the model as readable text. Any other
+        # exception is treated as a crash and masked to "Error executing tool
+        # convert_to_markdown", which tells an agent nothing it can act on.
+        raise ToolError(str(exc)) from exc
+
+
+def _convert(source: str, force: bool) -> ConvertResult:
     source_is_url = is_url(source)
 
     if not source_is_url:
