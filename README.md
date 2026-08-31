@@ -1,7 +1,13 @@
 # mdconvertor
 
+[![CI](https://github.com/divinecodes/mdconvertor/actions/workflows/ci.yml/badge.svg)](https://github.com/divinecodes/mdconvertor/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 A tiny CLI wrapper around [microsoft/markitdown](https://github.com/microsoft/markitdown).
 Point it at a file, tell it where to put the result, get Markdown.
+
+It also ships an [MCP server](#mcp-server), so an agent can work from a
+converted PDF without the document ever entering its context.
 
 ```
 mdconv <source> [dest]
@@ -19,6 +25,10 @@ That installs two commands globally: `mdconv` (the CLI) and `mdconv-mcp` (the
 `--prerelease=allow` is required: `markitdown[all]` depends on a beta Azure SDK,
 and the `[tool.uv]` setting in `pyproject.toml` only covers `uv sync`, not
 `uv tool install`. Without it the install fails to resolve.
+
+Note that an unrelated PyPI package also installs a command called `mdconv`. If
+you have both, whichever was installed last wins; nothing else about them
+overlaps.
 
 Python 3.10 through 3.13 are supported and tested. 3.14 works for a direct
 install on Linux and macOS but is not supported: `markitdown` pins
@@ -231,3 +241,14 @@ Layout:
 
 `tests/test_mcp.py` drives the server in-process over the real protocol via
 `mcp.Client`, so no subprocess is needed.
+
+## Contributing
+
+Issues and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md)
+for setup, the two dependency quirks that will otherwise surprise you, and the
+invariants a change should not break. Release notes live in
+[CHANGELOG.md](CHANGELOG.md).
+
+## License
+
+[MIT](LICENSE). `markitdown` and the MCP SDK are MIT too.
